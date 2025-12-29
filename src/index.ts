@@ -8,6 +8,7 @@ import { analyzeLOC } from './analyzers/loc';
 import { analyzeFiles } from './analyzers/files';
 import { renderTerminalReport } from './reporters/terminal';
 import { renderJsonReport } from './reporters/json';
+import { runDashboard } from './dashboard';
 
 const program = new Command();
 
@@ -15,13 +16,19 @@ program
   .name('codestat')
   .description('CLI tool untuk analisis codebase - LOC, file stats, dan lainnya')
   .version('1.0.0')
-  .argument('[path]', 'Path to the codebase to analyze', '.')
+  .argument('[path]', 'Path to the codebase to analyze')
   .option('-f, --format <format>', 'Output format: terminal, json', 'terminal')
   .option('-o, --output <file>', 'Write output to file')
   .option('-i, --ignore <patterns>', 'Comma-separated glob patterns to ignore')
   .option('-l, --lang <languages>', 'Comma-separated list of languages to include')
   .option('-t, --top <number>', 'Number of top items to show', '10')
-  .action(async (targetPath: string, options) => {
+  .option('-d, --dashboard', 'Run in dashboard mode with modern TUI')
+  .action(async (targetPath: string | undefined, options) => {
+    // If --dashboard flag or no path, run dashboard mode
+    if (options.dashboard || !targetPath) {
+      await runDashboard(targetPath);
+      return;
+    }
     try {
       const absolutePath = path.resolve(targetPath);
       

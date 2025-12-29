@@ -42,18 +42,25 @@ const loc_1 = require("./analyzers/loc");
 const files_2 = require("./analyzers/files");
 const terminal_1 = require("./reporters/terminal");
 const json_1 = require("./reporters/json");
+const dashboard_1 = require("./dashboard");
 const program = new commander_1.Command();
 program
     .name('codestat')
     .description('CLI tool untuk analisis codebase - LOC, file stats, dan lainnya')
     .version('1.0.0')
-    .argument('[path]', 'Path to the codebase to analyze', '.')
+    .argument('[path]', 'Path to the codebase to analyze')
     .option('-f, --format <format>', 'Output format: terminal, json', 'terminal')
     .option('-o, --output <file>', 'Write output to file')
     .option('-i, --ignore <patterns>', 'Comma-separated glob patterns to ignore')
     .option('-l, --lang <languages>', 'Comma-separated list of languages to include')
     .option('-t, --top <number>', 'Number of top items to show', '10')
+    .option('-d, --dashboard', 'Run in dashboard mode with modern TUI')
     .action(async (targetPath, options) => {
+    // If --dashboard flag or no path, run dashboard mode
+    if (options.dashboard || !targetPath) {
+        await (0, dashboard_1.runDashboard)(targetPath);
+        return;
+    }
     try {
         const absolutePath = path.resolve(targetPath);
         if (!fs.existsSync(absolutePath)) {

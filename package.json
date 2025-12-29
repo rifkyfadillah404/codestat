@@ -24,13 +24,21 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/blessed": "^0.1.27",
+    "@types/figlet": "^1.7.0",
+    "@types/inquirer": "^9.0.9",
     "@types/node": "^20.10.0",
     "typescript": "^5.3.0"
   },
   "dependencies": {
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
     "chalk": "^4.1.2",
     "cli-table3": "^0.6.3",
     "commander": "^11.1.0",
-    "fast-glob": "^3.3.2"
+    "fast-glob": "^3.3.2",
+    "figlet": "^1.9.4",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1"
   }
 }
