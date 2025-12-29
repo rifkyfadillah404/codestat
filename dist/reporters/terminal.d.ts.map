@@ -1,0 +1,1 @@
+{"version":3,"file":"terminal.d.ts","sourceRoot":"","sources":["../../src/reporters/terminal.ts"],"names":[],"mappings":"AAEA,OAAO,EAAE,SAAS,EAAE,MAAM,kBAAkB,CAAC;AAC7C,OAAO,EAAE,kBAAkB,EAAe,MAAM,oBAAoB,CAAC;AAErE,MAAM,WAAW,UAAU;IACzB,WAAW,EAAE,MAAM,CAAC;IACpB,GAAG,EAAE,SAAS,CAAC;IACf,KAAK,EAAE,kBAAkB,CAAC;CAC3B;AAMD,wBAAgB,oBAAoB,CAAC,IAAI,EAAE,UAAU,GAAG,IAAI,CA8E3D"}
