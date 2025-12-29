@@ -312,30 +312,107 @@ export async function runDashboard(targetPath?: string): Promise<void> {
   }
 
   function showInputDialog(title: string, callback: (value: string) => void) {
-    const input = blessed.textbox({
+    const inputBox = blessed.box({
       parent: screen,
-      label: ` ${title} `,
       top: 'center',
       left: 'center',
-      width: '60%',
-      height: 3,
+      width: '70%',
+      height: 7,
       border: { type: 'line' },
       style: {
-        fg: 'white',
-        bg: 'black',
+        bg: '#1a1a2e',
         border: { fg: 'cyan' },
-        label: { fg: 'cyan', bold: true },
+      },
+    });
+
+    const inputLabel = blessed.text({
+      parent: inputBox,
+      top: 0,
+      left: 1,
+      content: `{bold}{cyan-fg}${title}{/cyan-fg}{/bold}`,
+      tags: true,
+    });
+
+    const inputHint = blessed.text({
+      parent: inputBox,
+      top: 1,
+      left: 1,
+      content: '{gray-fg}Contoh: C:/code/project atau ../folder-lain{/gray-fg}',
+      tags: true,
+    });
+
+    const input = blessed.textbox({
+      parent: inputBox,
+      top: 3,
+      left: 1,
+      right: 1,
+      height: 1,
+      style: {
+        fg: 'white',
+        bg: '#333',
       },
       inputOnFocus: true,
     });
 
+    const inputHelp = blessed.text({
+      parent: inputBox,
+      bottom: 0,
+      left: 1,
+      content: '{gray-fg}[Enter] Scan  [Esc] Cancel{/gray-fg}',
+      tags: true,
+    });
+
+    input.key(['escape'], () => {
+      inputBox.destroy();
+      filesPanel.focus();
+      screen.render();
+    });
+
     input.focus();
     input.readInput((err, value) => {
-      input.destroy();
-      if (value) callback(value.trim());
+      inputBox.destroy();
+      if (value && value.trim()) {
+        callback(value.trim());
+      } else {
+        statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
+        filesPanel.focus();
+      }
       screen.render();
     });
     screen.render();
+  }
+
+  function showMessage(message: string, type: 'error' | 'success' | 'info' = 'info') {
+    const colors = {
+      error: 'red',
+      success: 'green',
+      info: 'cyan',
+    };
+    const icons = {
+      error: '✖',
+      success: '✔',
+      info: 'ℹ',
+    };
+
+    const msgBox = blessed.message({
+      parent: screen,
+      top: 'center',
+      left: 'center',
+      width: '50%',
+      height: 5,
+      border: { type: 'line' },
+      style: {
+        fg: 'white',
+        bg: '#1a1a2e',
+        border: { fg: colors[type] },
+      },
+      tags: true,
+    });
+
+    msgBox.display(`{center}{${colors[type]}-fg}${icons[type]} ${message}{/${colors[type]}-fg}{/center}`, 2, () => {
+      filesPanel.focus();
+      screen.render();
+    });
   }
 
   function exportJson() {
@@ -366,11 +443,14 @@ export async function runDashboard(targetPath?: string): Promise<void> {
   });
 
   screen.key(['s'], () => {
-    showInputDialog('Enter path to scan', async (value) => {
+    showInputDialog('Masukkan path folder yang mau di-scan', async (value) => {
       const data = await scanProject(value);
       if (data) {
         targetPath = value;
         updateDashboard(data);
+        showMessage(`Berhasil scan ${data.projectName}!`, 'success');
+      } else {
+        showMessage('Path tidak valid atau folder kosong!', 'error');
       }
     });
   });
