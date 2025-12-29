@@ -277,38 +277,59 @@ export async function runDashboard(targetPath?: string): Promise<void> {
     screen.render();
   }
 
-  async function scanProject(scanPath: string): Promise<DashboardData | null> {
-    try {
-      const absolutePath = path.resolve(scanPath);
-      if (!fs.existsSync(absolutePath)) {
-        statusBar.setContent(` {red-fg}Error: Path not found{/red-fg}`);
-        screen.render();
-        return null;
-      }
+  function scanProject(scanPath: string): Promise<DashboardData | null> {
+    return new Promise((resolve) => {
+      setImmediate(() => {
+        try {
+          const absolutePath = path.resolve(scanPath);
+          
+          if (!fs.existsSync(absolutePath)) {
+            statusBar.setContent(` {red-fg}Error: Path "${scanPath}" tidak ditemukan{/red-fg}`);
+            screen.render();
+            resolve(null);
+            return;
+          }
 
-      const projectName = path.basename(absolutePath);
-      statusBar.setContent(` {yellow-fg}Scanning ${projectName}...{/yellow-fg}`);
-      screen.render();
+          const stat = fs.statSync(absolutePath);
+          if (!stat.isDirectory()) {
+            statusBar.setContent(` {red-fg}Error: "${scanPath}" bukan folder{/red-fg}`);
+            screen.render();
+            resolve(null);
+            return;
+          }
 
-      const files = await walkFiles(absolutePath, []);
-      if (files.length === 0) {
-        statusBar.setContent(` {red-fg}No files found{/red-fg}`);
-        screen.render();
-        return null;
-      }
+          const projectName = path.basename(absolutePath);
+          statusBar.setContent(` {yellow-fg}Scanning ${projectName}...{/yellow-fg}`);
+          screen.render();
 
-      statusBar.setContent(` {yellow-fg}Analyzing ${files.length} files...{/yellow-fg}`);
-      screen.render();
+          walkFiles(absolutePath, []).then((files) => {
+            if (files.length === 0) {
+              statusBar.setContent(` {red-fg}Tidak ada file yang ditemukan di ${projectName}{/red-fg}`);
+              screen.render();
+              resolve(null);
+              return;
+            }
 
-      const locResult = analyzeLOC(files);
-      const fileResult = analyzeFiles(files, 15);
+            statusBar.setContent(` {yellow-fg}Analyzing ${files.length} files...{/yellow-fg}`);
+            screen.render();
 
-      return { projectName, loc: locResult, files: fileResult };
-    } catch (e) {
-      statusBar.setContent(` {red-fg}Error: ${e}{/red-fg}`);
-      screen.render();
-      return null;
-    }
+            const locResult = analyzeLOC(files);
+            const fileResult = analyzeFiles(files, 15);
+
+            resolve({ projectName, loc: locResult, files: fileResult });
+          }).catch((err) => {
+            statusBar.setContent(` {red-fg}Error: ${err.message}{/red-fg}`);
+            screen.render();
+            resolve(null);
+          });
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
+          screen.render();
+          resolve(null);
+        }
+      });
+    });
   }
 
   function showInputDialog(title: string, callback: (value: string) => void) {
