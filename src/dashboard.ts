@@ -500,77 +500,192 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       return;
     }
 
-    try {
-      const filename = `${currentData.projectName}-codestat-${Date.now()}.json`;
-      const fullPath = path.resolve(process.cwd(), filename);
-      
-      const output = {
-        projectName: currentData.projectName,
-        generatedAt: new Date().toISOString(),
-        loc: currentData.loc,
-        files: currentData.files,
-      };
-      
-      fs.writeFileSync(fullPath, JSON.stringify(output, null, 2));
-      
-      // Show success message with full path
-      const msgBox = blessed.box({
-        parent: screen,
-        top: 'center',
-        left: 'center',
-        width: '80%',
-        height: 9,
-        border: { type: 'line' },
-        style: {
-          bg: '#1a1a2e',
-          border: { fg: 'green' },
-        },
-        tags: true,
-      });
+    // Show input dialog for custom folder path
+    const inputBox = blessed.box({
+      parent: screen,
+      top: 'center',
+      left: 'center',
+      width: '80%',
+      height: 11,
+      border: { type: 'line' },
+      style: {
+        bg: '#1a1a2e',
+        border: { fg: 'cyan' },
+      },
+    });
 
-      const msgTitle = blessed.text({
-        parent: msgBox,
-        top: 0,
-        left: 'center',
-        content: '{center}{bold}{green-fg}✔ Export Berhasil!{/green-fg}{/bold}{/center}',
-        tags: true,
-      });
+    const inputLabel = blessed.text({
+      parent: inputBox,
+      top: 0,
+      left: 1,
+      content: '{bold}{cyan-fg}Export JSON - Pilih Folder Tujuan{/cyan-fg}{/bold}',
+      tags: true,
+    });
 
-      const msgContent = blessed.text({
-        parent: msgBox,
-        top: 2,
-        left: 1,
-        right: 1,
-        content: `{white-fg}File JSON berhasil disimpan ke:{/white-fg}\n\n{cyan-fg}${fullPath}{/cyan-fg}\n\n{gray-fg}Ukuran: ${formatBytes(fs.statSync(fullPath).size)}{/gray-fg}`,
-        tags: true,
-      });
+    const defaultFilename = `${currentData.projectName}-codestat-${Date.now()}.json`;
+    const currentDir = process.cwd();
 
-      const msgHelp = blessed.text({
-        parent: msgBox,
-        bottom: 0,
-        left: 'center',
-        content: '{center}{gray-fg}[Press any key to close]{/gray-fg}{/center}',
-        tags: true,
-      });
+    const inputHint = blessed.text({
+      parent: inputBox,
+      top: 1,
+      left: 1,
+      right: 1,
+      content: `{gray-fg}Nama file: ${defaultFilename}\nCurrent dir: ${currentDir}\n\nMasukkan path folder tujuan:\n- Kosongkan = simpan di current directory\n- Contoh: D:/exports atau ../reports{/gray-fg}`,
+      tags: true,
+    });
 
-      const closeMsg = () => {
-        msgBox.destroy();
+    const input = blessed.textbox({
+      parent: inputBox,
+      top: 7,
+      left: 1,
+      right: 1,
+      height: 1,
+      style: {
+        fg: 'white',
+        bg: '#333',
+      },
+      inputOnFocus: true,
+    });
+
+    const inputHelp = blessed.text({
+      parent: inputBox,
+      bottom: 0,
+      left: 1,
+      content: '{gray-fg}[Enter] Save  [Esc] Cancel{/gray-fg}',
+      tags: true,
+    });
+
+    let inputSubmitted = false;
+
+    const closeDialog = () => {
+      if (!inputSubmitted) {
+        inputSubmitted = true;
+        inputBox.destroy();
         filesPanel.focus();
         screen.render();
-      };
+      }
+    };
 
-      ['escape', 'enter', 'space', 'q'].forEach(key => {
-        screen.onceKey(key, closeMsg);
-      });
-      
-      msgBox.focus();
+    input.key(['escape'], () => {
+      closeDialog();
+      statusBar.setContent(' {yellow-fg}Export dibatalkan{/yellow-fg}');
       screen.render();
+    });
 
-      statusBar.setContent(` {green-fg}✔ Exported to ${filename}{/green-fg}`);
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      showMessage(`Gagal export: ${errMsg}`, 'error');
-    }
+    input.key(['enter'], async () => {
+      if (inputSubmitted) return;
+      
+      inputSubmitted = true;
+      const customFolder = input.getValue();
+      inputBox.destroy();
+      
+      try {
+        let targetFolder: string;
+        
+        // Use custom folder or current directory
+        if (customFolder && customFolder.trim()) {
+          const trimmedFolder = customFolder.trim();
+          
+          // Check if it's absolute or relative
+          if (path.isAbsolute(trimmedFolder)) {
+            targetFolder = trimmedFolder;
+          } else {
+            targetFolder = path.resolve(currentDir, trimmedFolder);
+          }
+        } else {
+          targetFolder = currentDir;
+        }
+
+        // Check if directory exists
+        if (!fs.existsSync(targetFolder)) {
+          showMessage(`Folder tidak ditemukan: ${targetFolder}\n\nBuat folder dulu atau pilih folder lain!`, 'error');
+          filesPanel.focus();
+          return;
+        }
+
+        // Check if it's actually a directory
+        const stats = fs.statSync(targetFolder);
+        if (!stats.isDirectory()) {
+          showMessage(`Bukan folder: ${targetFolder}`, 'error');
+          filesPanel.focus();
+          return;
+        }
+
+        // Build full path
+        const fullPath = path.resolve(targetFolder, defaultFilename);
+
+        const output = {
+          projectName: currentData!.projectName,
+          generatedAt: new Date().toISOString(),
+          loc: currentData!.loc,
+          files: currentData!.files,
+        };
+        
+        fs.writeFileSync(fullPath, JSON.stringify(output, null, 2));
+        
+        // Show success message with full path
+        const msgBox = blessed.box({
+          parent: screen,
+          top: 'center',
+          left: 'center',
+          width: '80%',
+          height: 10,
+          border: { type: 'line' },
+          style: {
+            bg: '#1a1a2e',
+            border: { fg: 'green' },
+          },
+          tags: true,
+        });
+
+        const msgTitle = blessed.text({
+          parent: msgBox,
+          top: 0,
+          left: 'center',
+          content: '{center}{bold}{green-fg}✔ Export Berhasil!{/green-fg}{/bold}{/center}',
+          tags: true,
+        });
+
+        const msgContent = blessed.text({
+          parent: msgBox,
+          top: 2,
+          left: 1,
+          right: 1,
+          content: `{white-fg}File JSON berhasil disimpan ke:{/white-fg}\n\n{cyan-fg}${fullPath}{/cyan-fg}\n\n{gray-fg}Folder: ${targetFolder}\nNama file: ${defaultFilename}\nUkuran: ${formatBytes(fs.statSync(fullPath).size)}{/gray-fg}`,
+          tags: true,
+        });
+
+        const msgHelp = blessed.text({
+          parent: msgBox,
+          bottom: 0,
+          left: 'center',
+          content: '{center}{gray-fg}[Press any key to close]{/gray-fg}{/center}',
+          tags: true,
+        });
+
+        const closeMsg = () => {
+          msgBox.destroy();
+          filesPanel.focus();
+          screen.render();
+        };
+
+        ['escape', 'enter', 'space', 'q'].forEach(key => {
+          screen.onceKey(key, closeMsg);
+        });
+        
+        msgBox.focus();
+        screen.render();
+
+        statusBar.setContent(` {green-fg}✔ Exported to ${targetFolder}{/green-fg}`);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        showMessage(`Gagal export: ${errMsg}`, 'error');
+        filesPanel.focus();
+      }
+    });
+
+    input.focus();
+    screen.render();
   }
 
   // Key bindings
