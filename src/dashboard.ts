@@ -4,11 +4,15 @@ import * as fs from 'fs';
 import { walkFiles } from './utils/files';
 import { analyzeLOC, LOCResult } from './analyzers/loc';
 import { analyzeFiles, FileAnalysisResult, formatBytes } from './analyzers/files';
+import { analyzeTodos, TodoResult } from './analyzers/todos';
+import { analyzeGit, GitResult } from './analyzers/git';
 
 interface DashboardData {
   projectName: string;
   loc: LOCResult;
   files: FileAnalysisResult;
+  todos: TodoResult;
+  git: GitResult;
 }
 
 const LOGO = `
@@ -116,7 +120,7 @@ export async function runDashboard(targetPath?: string): Promise<void> {
     label: ' {bold}{cyan-fg}Largest Files{/cyan-fg}{/bold} ',
     top: '43%',
     left: 0,
-    width: '50%',
+    width: '33%',
     height: '45%',
     border: { type: 'line' },
     tags: true,
@@ -134,13 +138,13 @@ export async function runDashboard(targetPath?: string): Promise<void> {
     },
   });
 
-  // Folders panel
-  const foldersPanel = blessed.list({
+  // TODO/FIXME panel
+  const todosPanel = blessed.list({
     parent: screen,
-    label: ' {bold}{cyan-fg}Top Folders{/cyan-fg}{/bold} ',
+    label: ' {bold}{yellow-fg}TODOs/FIXMEs{/yellow-fg}{/bold} ',
     top: '43%',
-    left: '50%',
-    width: '50%',
+    left: '33%',
+    width: '34%',
     height: '45%',
     border: { type: 'line' },
     tags: true,
@@ -149,12 +153,36 @@ export async function runDashboard(targetPath?: string): Promise<void> {
     mouse: true,
     scrollable: true,
     style: {
-      border: { fg: 'cyan' },
-      selected: { bg: 'cyan', fg: 'black', bold: true },
+      border: { fg: 'yellow' },
+      selected: { bg: 'yellow', fg: 'black', bold: true },
       item: { fg: 'white' },
     },
     scrollbar: {
-      style: { bg: 'cyan' },
+      style: { bg: 'yellow' },
+    },
+  });
+
+  // Git stats panel
+  const gitPanel = blessed.list({
+    parent: screen,
+    label: ' {bold}{magenta-fg}Git Stats{/magenta-fg}{/bold} ',
+    top: '43%',
+    left: '67%',
+    width: '33%',
+    height: '45%',
+    border: { type: 'line' },
+    tags: true,
+    keys: true,
+    vi: true,
+    mouse: true,
+    scrollable: true,
+    style: {
+      border: { fg: 'magenta' },
+      selected: { bg: 'magenta', fg: 'black', bold: true },
+      item: { fg: 'white' },
+    },
+    scrollbar: {
+      style: { bg: 'magenta' },
     },
   });
 
@@ -190,12 +218,12 @@ export async function runDashboard(targetPath?: string): Promise<void> {
 
   let currentData: DashboardData | null = null;
   let currentFocus = 0;
-  const focusables = [filesPanel, foldersPanel];
+  const focusables = [filesPanel, todosPanel, gitPanel];
   let isScanning = false;
 
   function updateDashboard(data: DashboardData) {
     currentData = data;
-    const { projectName, loc, files } = data;
+    const { projectName, loc, files, todos, git } = data;
 
     // Update overview
     overview.setContent(
@@ -204,9 +232,10 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       `{bold}{white-fg}Statistics:{/white-fg}{/bold}\n` +
       `  Files:     {green-fg}${files.totalFiles.toLocaleString()}{/green-fg}\n` +
       `  Size:      {green-fg}${formatBytes(files.totalSize)}{/green-fg}\n` +
-      `  Languages: {green-fg}${loc.byLanguage.length}{/green-fg}\n\n` +
+      `  Languages: {green-fg}${loc.byLanguage.length}{/green-fg}\n` +
+      `  TODOs:     {yellow-fg}${todos.total}{/yellow-fg}\n` +
+      `  Commits:   {magenta-fg}${git.totalCommits}{/magenta-fg}\n\n` +
       `{bold}{white-fg}Lines:{/white-fg}{/bold}\n` +
-      `  Total:     {yellow-fg}${loc.totals.total.toLocaleString()}{/yellow-fg}\n` +
       `  Code:      {green-fg}${loc.totals.code.toLocaleString()}{/green-fg}\n` +
       `  Comments:  {blue-fg}${loc.totals.comments.toLocaleString()}{/blue-fg}\n` +
       `  Blank:     {gray-fg}${loc.totals.blank.toLocaleString()}{/gray-fg}`
@@ -249,29 +278,60 @@ export async function runDashboard(targetPath?: string): Promise<void> {
     // Update files list
     const fileItems = files.largestFiles.map((f, i) => {
       const num = (i + 1).toString().padStart(2);
-      const name = truncate(f.path.replace(/\\/g, '/'), 35);
-      const lines = f.lines.toLocaleString().padStart(8);
-      const size = formatBytes(f.size).padStart(10);
-      return ` ${num}. ${name} ${lines} lines ${size}`;
+      const name = truncate(f.path.replace(/\\/g, '/'), 25);
+      const lines = f.lines.toLocaleString().padStart(6);
+      return ` ${num}. ${name} ${lines}L`;
     });
     filesPanel.setItems(fileItems);
 
-    // Update folders list
-    const folderItems = files.folderStats.map((f, i) => {
+    // Update TODOs list
+    const todoTypeColors: Record<string, string> = {
+      'TODO': 'yellow',
+      'FIXME': 'red',
+      'HACK': 'magenta',
+      'XXX': 'red',
+      'BUG': 'red',
+      'NOTE': 'blue',
+    };
+    const todoItems = todos.items.slice(0, 30).map((t, i) => {
       const num = (i + 1).toString().padStart(2);
-      const name = truncate(f.path || '.', 35);
-      const count = f.fileCount.toString().padStart(5);
-      const lines = f.totalLines.toLocaleString().padStart(8);
-      return ` ${num}. ${name} ${count} files ${lines} lines`;
+      const color = todoTypeColors[t.type] || 'white';
+      const text = truncate(t.text, 20);
+      return ` ${num}. {${color}-fg}${t.type}{/${color}-fg} ${text}`;
     });
-    foldersPanel.setItems(folderItems);
+    if (todoItems.length === 0) {
+      todoItems.push(' No TODOs found!');
+    }
+    todosPanel.setItems(todoItems);
+
+    // Update Git stats list
+    const gitItems: string[] = [];
+    if (git.isGitRepo) {
+      gitItems.push(` {bold}Commits:{/bold} ${git.totalCommits}`);
+      gitItems.push(` {bold}Branches:{/bold} ${git.branches}`);
+      if (git.firstCommit) gitItems.push(` {bold}First:{/bold} ${git.firstCommit}`);
+      if (git.lastCommit) gitItems.push(` {bold}Last:{/bold} ${git.lastCommit}`);
+      gitItems.push('');
+      gitItems.push(' {bold}{magenta-fg}Top Contributors:{/magenta-fg}{/bold}');
+      git.contributors.slice(0, 5).forEach((c, i) => {
+        gitItems.push(` ${i + 1}. ${truncate(c.name, 15)} (${c.commits})`);
+      });
+      gitItems.push('');
+      gitItems.push(' {bold}{cyan-fg}Hot Files:{/cyan-fg}{/bold}');
+      git.fileChurn.slice(0, 5).forEach((f, i) => {
+        gitItems.push(` ${i + 1}. ${truncate(f.file, 18)} (${f.changes})`);
+      });
+    } else {
+      gitItems.push(' Not a git repository');
+    }
+    gitPanel.setItems(gitItems);
 
     // Update status
     statusBar.setContent(
-      ` {bold}${projectName}{/bold} │ ` +
-      `{green-fg}${files.totalFiles} files{/green-fg} │ ` +
-      `{yellow-fg}${loc.totals.total.toLocaleString()} lines{/yellow-fg} │ ` +
-      `{cyan-fg}${loc.byLanguage.length} languages{/cyan-fg} │ ` +
+      ` {bold}${projectName}{/bold} | ` +
+      `{green-fg}${files.totalFiles} files{/green-fg} | ` +
+      `{yellow-fg}${loc.totals.code.toLocaleString()} LOC{/yellow-fg} | ` +
+      `{magenta-fg}${todos.total} TODOs{/magenta-fg} | ` +
       `Updated: ${new Date().toLocaleTimeString()}`
     );
 
@@ -325,8 +385,10 @@ export async function runDashboard(targetPath?: string): Promise<void> {
 
           const locResult = analyzeLOC(files);
           const fileResult = analyzeFiles(files, 15);
+          const todoResult = analyzeTodos(files, 15);
+          const gitResult = analyzeGit(absolutePath, 10);
 
-          resolve({ projectName, loc: locResult, files: fileResult });
+          resolve({ projectName, loc: locResult, files: fileResult, todos: todoResult, git: gitResult });
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
           statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
@@ -619,6 +681,8 @@ export async function runDashboard(targetPath?: string): Promise<void> {
           generatedAt: new Date().toISOString(),
           loc: currentData!.loc,
           files: currentData!.files,
+          todos: currentData!.todos,
+          git: currentData!.git,
         };
         
         fs.writeFileSync(fullPath, JSON.stringify(output, null, 2));
