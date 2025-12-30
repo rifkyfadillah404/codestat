@@ -6,6 +6,8 @@ import { analyzeLOC, LOCResult } from './analyzers/loc';
 import { analyzeFiles, FileAnalysisResult, formatBytes } from './analyzers/files';
 import { analyzeTodos, TodoResult } from './analyzers/todos';
 import { analyzeGit, GitResult } from './analyzers/git';
+import { analyzeDeps, DepsResult } from './analyzers/deps';
+import { calculateHealthScore, HealthScore } from './analyzers/health';
 
 interface DashboardData {
   projectName: string;
@@ -13,6 +15,8 @@ interface DashboardData {
   files: FileAnalysisResult;
   todos: TodoResult;
   git: GitResult;
+  deps: DepsResult;
+  health: HealthScore;
 }
 
 const LOGO = `
@@ -223,22 +227,29 @@ export async function runDashboard(targetPath?: string): Promise<void> {
 
   function updateDashboard(data: DashboardData) {
     currentData = data;
-    const { projectName, loc, files, todos, git } = data;
+    const { projectName, loc, files, todos, git, deps, health } = data;
+
+    // Health grade colors
+    const gradeColors: Record<string, string> = {
+      'A': 'green',
+      'B': 'cyan',
+      'C': 'yellow',
+      'D': 'red',
+      'F': 'red',
+    };
+    const gradeColor = gradeColors[health.grade] || 'white';
 
     // Update overview
     overview.setContent(
       `{bold}{white-fg}Project:{/white-fg}{/bold}\n` +
       `  {cyan-fg}${projectName}{/cyan-fg}\n\n` +
-      `{bold}{white-fg}Statistics:{/white-fg}{/bold}\n` +
-      `  Files:     {green-fg}${files.totalFiles.toLocaleString()}{/green-fg}\n` +
-      `  Size:      {green-fg}${formatBytes(files.totalSize)}{/green-fg}\n` +
-      `  Languages: {green-fg}${loc.byLanguage.length}{/green-fg}\n` +
-      `  TODOs:     {yellow-fg}${todos.total}{/yellow-fg}\n` +
-      `  Commits:   {magenta-fg}${git.totalCommits}{/magenta-fg}\n\n` +
-      `{bold}{white-fg}Lines:{/white-fg}{/bold}\n` +
-      `  Code:      {green-fg}${loc.totals.code.toLocaleString()}{/green-fg}\n` +
-      `  Comments:  {blue-fg}${loc.totals.comments.toLocaleString()}{/blue-fg}\n` +
-      `  Blank:     {gray-fg}${loc.totals.blank.toLocaleString()}{/gray-fg}`
+      `{bold}{${gradeColor}-fg}Health: ${health.grade} (${health.score}/100){/${gradeColor}-fg}{/bold}\n\n` +
+      `{bold}{white-fg}Stats:{/white-fg}{/bold}\n` +
+      `  Files:   {green-fg}${files.totalFiles}{/green-fg}\n` +
+      `  Code:    {green-fg}${loc.totals.code.toLocaleString()}{/green-fg}\n` +
+      `  TODOs:   {yellow-fg}${todos.total}{/yellow-fg}\n` +
+      `  Deps:    {cyan-fg}${deps.totalDeps}{/cyan-fg}\n` +
+      `  Commits: {magenta-fg}${git.totalCommits}{/magenta-fg}`
     );
 
     // Update languages with progress bars
@@ -387,8 +398,10 @@ export async function runDashboard(targetPath?: string): Promise<void> {
           const fileResult = analyzeFiles(files, 15);
           const todoResult = analyzeTodos(files, 15);
           const gitResult = analyzeGit(absolutePath, 10);
+          const depsResult = analyzeDeps(absolutePath, false);
+          const healthResult = calculateHealthScore(locResult, fileResult, todoResult, gitResult, depsResult);
 
-          resolve({ projectName, loc: locResult, files: fileResult, todos: todoResult, git: gitResult });
+          resolve({ projectName, loc: locResult, files: fileResult, todos: todoResult, git: gitResult, deps: depsResult, health: healthResult });
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
           statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
@@ -679,10 +692,12 @@ export async function runDashboard(targetPath?: string): Promise<void> {
         const output = {
           projectName: currentData!.projectName,
           generatedAt: new Date().toISOString(),
+          health: currentData!.health,
           loc: currentData!.loc,
           files: currentData!.files,
           todos: currentData!.todos,
           git: currentData!.git,
+          deps: currentData!.deps,
         };
         
         fs.writeFileSync(fullPath, JSON.stringify(output, null, 2));
