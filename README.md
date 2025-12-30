@@ -1,5 +1,5 @@
 # CODESTAT
-<img width="1919" height="959" alt="image" src="https://github.com/user-attachments/assets/196c099a-10b3-4893-b134-ab3022c224fb" />
+<img width="1600" height="899" alt="image" src="https://github.com/user-attachments/assets/be8781aa-0e32-4bb4-8f84-4e65c07da91f" />
 > CLI tool untuk analisis codebase - LOC, file stats, dan visualisasi modern di terminal.
 
 ## Features
