@@ -495,17 +495,82 @@ export async function runDashboard(targetPath?: string): Promise<void> {
   }
 
   function exportJson() {
-    if (!currentData) return;
-    const filename = `${currentData.projectName}-codestat-${Date.now()}.json`;
-    const output = {
-      projectName: currentData.projectName,
-      generatedAt: new Date().toISOString(),
-      loc: currentData.loc,
-      files: currentData.files,
-    };
-    fs.writeFileSync(filename, JSON.stringify(output, null, 2));
-    statusBar.setContent(` {green-fg}Exported to ${filename}{/green-fg}`);
-    screen.render();
+    if (!currentData) {
+      showMessage('Tidak ada data untuk di-export. Scan project dulu!', 'error');
+      return;
+    }
+
+    try {
+      const filename = `${currentData.projectName}-codestat-${Date.now()}.json`;
+      const fullPath = path.resolve(process.cwd(), filename);
+      
+      const output = {
+        projectName: currentData.projectName,
+        generatedAt: new Date().toISOString(),
+        loc: currentData.loc,
+        files: currentData.files,
+      };
+      
+      fs.writeFileSync(fullPath, JSON.stringify(output, null, 2));
+      
+      // Show success message with full path
+      const msgBox = blessed.box({
+        parent: screen,
+        top: 'center',
+        left: 'center',
+        width: '80%',
+        height: 9,
+        border: { type: 'line' },
+        style: {
+          bg: '#1a1a2e',
+          border: { fg: 'green' },
+        },
+        tags: true,
+      });
+
+      const msgTitle = blessed.text({
+        parent: msgBox,
+        top: 0,
+        left: 'center',
+        content: '{center}{bold}{green-fg}✔ Export Berhasil!{/green-fg}{/bold}{/center}',
+        tags: true,
+      });
+
+      const msgContent = blessed.text({
+        parent: msgBox,
+        top: 2,
+        left: 1,
+        right: 1,
+        content: `{white-fg}File JSON berhasil disimpan ke:{/white-fg}\n\n{cyan-fg}${fullPath}{/cyan-fg}\n\n{gray-fg}Ukuran: ${formatBytes(fs.statSync(fullPath).size)}{/gray-fg}`,
+        tags: true,
+      });
+
+      const msgHelp = blessed.text({
+        parent: msgBox,
+        bottom: 0,
+        left: 'center',
+        content: '{center}{gray-fg}[Press any key to close]{/gray-fg}{/center}',
+        tags: true,
+      });
+
+      const closeMsg = () => {
+        msgBox.destroy();
+        filesPanel.focus();
+        screen.render();
+      };
+
+      ['escape', 'enter', 'space', 'q'].forEach(key => {
+        screen.onceKey(key, closeMsg);
+      });
+      
+      msgBox.focus();
+      screen.render();
+
+      statusBar.setContent(` {green-fg}✔ Exported to ${filename}{/green-fg}`);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      showMessage(`Gagal export: ${errMsg}`, 'error');
+    }
   }
 
   // Key bindings
