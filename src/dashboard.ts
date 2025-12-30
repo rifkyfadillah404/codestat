@@ -358,7 +358,7 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       parent: inputBox,
       top: 1,
       left: 1,
-      content: '{gray-fg}Contoh: C:/code/project atau ../folder-lain{/gray-fg}',
+      content: '{gray-fg}Contoh: C:/code/project atau C:\\Users\\folder{/gray-fg}',
       tags: true,
     });
 
@@ -383,24 +383,40 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       tags: true,
     });
 
-    input.key(['escape'], () => {
+    function cleanup() {
       inputBox.destroy();
       filesPanel.focus();
       screen.render();
-    });
+    }
 
-    input.focus();
-    input.readInput((err, value) => {
-      inputBox.destroy();
-      if (value && value.trim()) {
-        callback(value.trim());
-      } else {
-        statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
-        filesPanel.focus();
-      }
+    input.key(['escape'], () => {
+      cleanup();
+      statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
       screen.render();
     });
+
+    input.on('submit', (value: string) => {
+      cleanup();
+      if (value && value.trim()) {
+        const cleanPath = value.trim();
+        statusBar.setContent(` {yellow-fg}Processing: ${cleanPath}{/yellow-fg}`);
+        screen.render();
+        callback(cleanPath);
+      } else {
+        statusBar.setContent(' {yellow-fg}Path kosong, scan dibatalkan{/yellow-fg}');
+        screen.render();
+      }
+    });
+
+    input.on('cancel', () => {
+      cleanup();
+      statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
+      screen.render();
+    });
+
     screen.render();
+    input.focus();
+    input.readInput();
   }
 
   function showMessage(message: string, type: 'error' | 'success' | 'info' = 'info') {
