@@ -1,14 +1,20 @@
 # CODESTAT
+
 <img width="1919" height="959" alt="image" src="https://github.com/user-attachments/assets/196c099a-10b3-4893-b134-ab3022c224fb" />
-> CLI tool untuk analisis codebase - LOC, file stats, dan visualisasi modern di terminal.
+
+> CLI tool untuk analisis codebase - LOC, file stats, health score, dan visualisasi modern di terminal.
 
 ## Features
 
 - **Lines of Code Counter** - Hitung LOC per bahasa (code, comments, blank)
 - **File Analysis** - Top largest files, folder statistics
+- **TODO/FIXME Tracker** - Scan semua TODO, FIXME, HACK, BUG, NOTE comments
+- **Git Statistics** - Commits, contributors, file churn (hot files)
+- **Dependency Scanner** - List semua dependencies, detect package manager
+- **Health Score** - Grade A-F berdasarkan code quality, maintenance, docs, activity
 - **Modern TUI Dashboard** - Full-screen terminal UI dengan ASCII art
 - **Progress Bars** - Visualisasi persentase per bahasa
-- **Multiple Output Formats** - Terminal colorful atau JSON
+- **Multiple Output Formats** - Terminal colorful atau JSON export
 - **40+ Languages Supported** - TypeScript, Python, Go, Rust, Java, dll
 
 ## Installation
@@ -40,6 +46,16 @@ codestat
 codestat --dashboard
 codestat -d
 ```
+
+**Dashboard Panels:**
+| Panel | Info |
+|-------|------|
+| **Overview** | Project name, health grade, stats summary |
+| **Languages** | LOC breakdown per bahasa dengan progress bars |
+| **LOC Breakdown** | Code vs Comments vs Blank lines |
+| **Largest Files** | Top files by line count |
+| **TODOs/FIXMEs** | List semua TODO, FIXME, HACK, BUG comments |
+| **Git Stats** | Commits, contributors, hot files |
 
 **Keyboard Shortcuts:**
 | Key | Action |
@@ -91,6 +107,31 @@ codestat . --top 20
 | `--version` | `-V` | Show version |
 | `--help` | `-h` | Show help |
 
+## Health Score
+
+CodeStat menghitung health score (0-100) dan grade (A-F) berdasarkan:
+
+| Category | What's Checked |
+|----------|----------------|
+| **Code Quality** | Large files (>500 lines), comment ratio |
+| **Maintenance** | TODO/FIXME count, critical issues (BUG), lockfile |
+| **Documentation** | README exists, comment coverage |
+| **Activity** | Recent commits, contributor count |
+
+Contoh output:
+```
+Health: B (78/100)
+
+Issues:
+- 5 files with >500 lines
+- 12 TODOs/FIXMEs
+- No commits in the last 30 days
+
+Recommendations:
+- Consider splitting large files into smaller modules
+- Address TODO items to reduce tech debt
+```
+
 ## Example Output
 
 ### Terminal Mode
@@ -120,28 +161,45 @@ codestat . --top 20
      3. src/api/handlers.ts             (756 lines)
 ```
 
-### JSON Mode
+### JSON Export
+
+Export dengan pencet `E` di dashboard atau `--format json`:
 
 ```json
 {
   "projectName": "my-project",
   "generatedAt": "2024-01-15T10:30:00.000Z",
+  "health": {
+    "grade": "B",
+    "score": 78,
+    "breakdown": {
+      "codeQuality": 20,
+      "maintenance": 18,
+      "documentation": 22,
+      "activity": 18
+    },
+    "issues": ["5 files with >500 lines"],
+    "recommendations": ["Consider splitting large files"]
+  },
   "loc": {
-    "byLanguage": [
-      {
-        "language": "TypeScript",
-        "files": 120,
-        "code": 28450,
-        "comments": 3200,
-        "blank": 4100
-      }
-    ],
-    "totals": {
-      "files": 234,
-      "code": 35780,
-      "comments": 4090,
-      "blank": 5120
-    }
+    "byLanguage": [...],
+    "totals": { "files": 234, "code": 35780, "comments": 4090, "blank": 5120 }
+  },
+  "todos": {
+    "total": 12,
+    "items": [{ "type": "TODO", "text": "implement feature", "file": "src/api.ts", "line": 45 }],
+    "byType": { "TODO": 8, "FIXME": 3, "HACK": 1 }
+  },
+  "git": {
+    "totalCommits": 156,
+    "contributors": [{ "name": "John", "commits": 120 }],
+    "fileChurn": [{ "file": "src/index.ts", "changes": 45 }]
+  },
+  "deps": {
+    "packageManager": "npm",
+    "hasLockfile": true,
+    "totalDeps": 25,
+    "summary": { "prod": 10, "dev": 15 }
   }
 }
 ```
