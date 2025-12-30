@@ -191,6 +191,7 @@ export async function runDashboard(targetPath?: string): Promise<void> {
   let currentData: DashboardData | null = null;
   let currentFocus = 0;
   const focusables = [filesPanel, foldersPanel];
+  let isScanning = false;
 
   function updateDashboard(data: DashboardData) {
     currentData = data;
@@ -279,8 +280,16 @@ export async function runDashboard(targetPath?: string): Promise<void> {
 
   function scanProject(scanPath: string): Promise<DashboardData | null> {
     return new Promise((resolve) => {
-      setImmediate(() => {
+      setImmediate(async () => {
+        if (isScanning) {
+          statusBar.setContent(` {yellow-fg}Scan sedang berjalan, tunggu sebentar...{/yellow-fg}`);
+          screen.render();
+          resolve(null);
+          return;
+        }
+
         try {
+          isScanning = true;
           const absolutePath = path.resolve(scanPath);
           
           if (!fs.existsSync(absolutePath)) {
@@ -299,40 +308,38 @@ export async function runDashboard(targetPath?: string): Promise<void> {
           }
 
           const projectName = path.basename(absolutePath);
-          statusBar.setContent(` {yellow-fg}Scanning ${projectName}...{/yellow-fg}`);
+          statusBar.setContent(` {yellow-fg}⏳ Scanning ${projectName}...{/yellow-fg}`);
           screen.render();
 
-          walkFiles(absolutePath, []).then((files) => {
-            if (files.length === 0) {
-              statusBar.setContent(` {red-fg}Tidak ada file yang ditemukan di ${projectName}{/red-fg}`);
-              screen.render();
-              resolve(null);
-              return;
-            }
-
-            statusBar.setContent(` {yellow-fg}Analyzing ${files.length} files...{/yellow-fg}`);
-            screen.render();
-
-            const locResult = analyzeLOC(files);
-            const fileResult = analyzeFiles(files, 15);
-
-            resolve({ projectName, loc: locResult, files: fileResult });
-          }).catch((err) => {
-            statusBar.setContent(` {red-fg}Error: ${err.message}{/red-fg}`);
+          const files = await walkFiles(absolutePath, []);
+          
+          if (files.length === 0) {
+            statusBar.setContent(` {red-fg}Tidak ada file yang ditemukan di ${projectName}{/red-fg}`);
             screen.render();
             resolve(null);
-          });
+            return;
+          }
+
+          statusBar.setContent(` {yellow-fg}⏳ Analyzing ${files.length} files...{/yellow-fg}`);
+          screen.render();
+
+          const locResult = analyzeLOC(files);
+          const fileResult = analyzeFiles(files, 15);
+
+          resolve({ projectName, loc: locResult, files: fileResult });
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
           statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
           screen.render();
           resolve(null);
+        } finally {
+          isScanning = false;
         }
       });
     });
   }
 
-  function showInputDialog(title: string, callback: (value: string) => void) {
+  function showInputDialog(title: string, callback: (value: string) => Promise<void>) {
     const inputBox = blessed.box({
       parent: screen,
       top: 'center',
@@ -358,7 +365,7 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       parent: inputBox,
       top: 1,
       left: 1,
-      content: '{gray-fg}Contoh: C:/code/project atau C:\\Users\\folder{/gray-fg}',
+      content: '{gray-fg}Contoh: C:/code/project, . (current dir), atau ../folder-lain{/gray-fg}',
       tags: true,
     });
 
@@ -383,40 +390,75 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       tags: true,
     });
 
-    function cleanup() {
-      inputBox.destroy();
-      filesPanel.focus();
-      screen.render();
-    }
+    let isProcessing = false;
+    let inputSubmitted = false;
+
+    const closeDialog = () => {
+      if (!inputSubmitted) {
+        inputSubmitted = true;
+        inputBox.destroy();
+        filesPanel.focus();
+        screen.render();
+      }
+    };
 
     input.key(['escape'], () => {
-      cleanup();
-      statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
-      screen.render();
+      if (!isProcessing) {
+        closeDialog();
+      }
     });
 
-    input.on('submit', (value: string) => {
-      cleanup();
-      if (value && value.trim()) {
-        const cleanPath = value.trim();
-        statusBar.setContent(` {yellow-fg}Processing: ${cleanPath}{/yellow-fg}`);
+    input.key(['enter'], async () => {
+      if (isProcessing || inputSubmitted) return;
+      
+      inputSubmitted = true;
+      const value = input.getValue();
+      inputBox.destroy();
+      
+      if (!value || !value.trim()) {
+        statusBar.setContent(' {yellow-fg}Scan dibatalkan - path kosong{/yellow-fg}');
+        filesPanel.focus();
         screen.render();
-        callback(cleanPath);
-      } else {
-        statusBar.setContent(' {yellow-fg}Path kosong, scan dibatalkan{/yellow-fg}');
+        return;
+      }
+
+      const trimmedValue = value.trim();
+      
+      // Basic validation
+      if (trimmedValue.length > 500) {
+        statusBar.setContent(' {red-fg}Error: Path terlalu panjang (max 500 karakter){/red-fg}');
+        filesPanel.focus();
+        screen.render();
+        return;
+      }
+
+      // Check for obviously invalid characters (Windows & Unix)
+      const invalidChars = /[<>"|?*\x00-\x1f]/;
+      if (invalidChars.test(trimmedValue)) {
+        statusBar.setContent(' {red-fg}Error: Path mengandung karakter invalid{/red-fg}');
+        filesPanel.focus();
+        screen.render();
+        return;
+      }
+
+      isProcessing = true;
+      statusBar.setContent(` {yellow-fg}⏳ Validating path...{/yellow-fg}`);
+      screen.render();
+
+      try {
+        await callback(trimmedValue);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
+      } finally {
+        isProcessing = false;
+        filesPanel.focus();
         screen.render();
       }
     });
 
-    input.on('cancel', () => {
-      cleanup();
-      statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
-      screen.render();
-    });
-
-    screen.render();
     input.focus();
-    input.readInput();
+    screen.render();
   }
 
   function showMessage(message: string, type: 'error' | 'success' | 'info' = 'info') {
@@ -453,16 +495,196 @@ export async function runDashboard(targetPath?: string): Promise<void> {
   }
 
   function exportJson() {
-    if (!currentData) return;
-    const filename = `${currentData.projectName}-codestat-${Date.now()}.json`;
-    const output = {
-      projectName: currentData.projectName,
-      generatedAt: new Date().toISOString(),
-      loc: currentData.loc,
-      files: currentData.files,
+    if (!currentData) {
+      showMessage('Tidak ada data untuk di-export. Scan project dulu!', 'error');
+      return;
+    }
+
+    // Show input dialog for custom folder path
+    const inputBox = blessed.box({
+      parent: screen,
+      top: 'center',
+      left: 'center',
+      width: '80%',
+      height: 11,
+      border: { type: 'line' },
+      style: {
+        bg: '#1a1a2e',
+        border: { fg: 'cyan' },
+      },
+    });
+
+    const inputLabel = blessed.text({
+      parent: inputBox,
+      top: 0,
+      left: 1,
+      content: '{bold}{cyan-fg}Export JSON - Pilih Folder Tujuan{/cyan-fg}{/bold}',
+      tags: true,
+    });
+
+    const defaultFilename = `${currentData.projectName}-codestat-${Date.now()}.json`;
+    const currentDir = process.cwd();
+
+    const inputHint = blessed.text({
+      parent: inputBox,
+      top: 1,
+      left: 1,
+      right: 1,
+      content: `{gray-fg}Nama file: ${defaultFilename}\nCurrent dir: ${currentDir}\n\nMasukkan path folder tujuan:\n- Kosongkan = simpan di current directory\n- Contoh: D:/exports atau ../reports{/gray-fg}`,
+      tags: true,
+    });
+
+    const input = blessed.textbox({
+      parent: inputBox,
+      top: 7,
+      left: 1,
+      right: 1,
+      height: 1,
+      style: {
+        fg: 'white',
+        bg: '#333',
+      },
+      inputOnFocus: true,
+    });
+
+    const inputHelp = blessed.text({
+      parent: inputBox,
+      bottom: 0,
+      left: 1,
+      content: '{gray-fg}[Enter] Save  [Esc] Cancel{/gray-fg}',
+      tags: true,
+    });
+
+    let inputSubmitted = false;
+
+    const closeDialog = () => {
+      if (!inputSubmitted) {
+        inputSubmitted = true;
+        inputBox.destroy();
+        filesPanel.focus();
+        screen.render();
+      }
     };
-    fs.writeFileSync(filename, JSON.stringify(output, null, 2));
-    statusBar.setContent(` {green-fg}Exported to ${filename}{/green-fg}`);
+
+    input.key(['escape'], () => {
+      closeDialog();
+      statusBar.setContent(' {yellow-fg}Export dibatalkan{/yellow-fg}');
+      screen.render();
+    });
+
+    input.key(['enter'], async () => {
+      if (inputSubmitted) return;
+      
+      inputSubmitted = true;
+      const customFolder = input.getValue();
+      inputBox.destroy();
+      
+      try {
+        let targetFolder: string;
+        
+        // Use custom folder or current directory
+        if (customFolder && customFolder.trim()) {
+          const trimmedFolder = customFolder.trim();
+          
+          // Check if it's absolute or relative
+          if (path.isAbsolute(trimmedFolder)) {
+            targetFolder = trimmedFolder;
+          } else {
+            targetFolder = path.resolve(currentDir, trimmedFolder);
+          }
+        } else {
+          targetFolder = currentDir;
+        }
+
+        // Check if directory exists
+        if (!fs.existsSync(targetFolder)) {
+          showMessage(`Folder tidak ditemukan: ${targetFolder}\n\nBuat folder dulu atau pilih folder lain!`, 'error');
+          filesPanel.focus();
+          return;
+        }
+
+        // Check if it's actually a directory
+        const stats = fs.statSync(targetFolder);
+        if (!stats.isDirectory()) {
+          showMessage(`Bukan folder: ${targetFolder}`, 'error');
+          filesPanel.focus();
+          return;
+        }
+
+        // Build full path
+        const fullPath = path.resolve(targetFolder, defaultFilename);
+
+        const output = {
+          projectName: currentData!.projectName,
+          generatedAt: new Date().toISOString(),
+          loc: currentData!.loc,
+          files: currentData!.files,
+        };
+        
+        fs.writeFileSync(fullPath, JSON.stringify(output, null, 2));
+        
+        // Show success message with full path
+        const msgBox = blessed.box({
+          parent: screen,
+          top: 'center',
+          left: 'center',
+          width: '80%',
+          height: 10,
+          border: { type: 'line' },
+          style: {
+            bg: '#1a1a2e',
+            border: { fg: 'green' },
+          },
+          tags: true,
+        });
+
+        const msgTitle = blessed.text({
+          parent: msgBox,
+          top: 0,
+          left: 'center',
+          content: '{center}{bold}{green-fg}✔ Export Berhasil!{/green-fg}{/bold}{/center}',
+          tags: true,
+        });
+
+        const msgContent = blessed.text({
+          parent: msgBox,
+          top: 2,
+          left: 1,
+          right: 1,
+          content: `{white-fg}File JSON berhasil disimpan ke:{/white-fg}\n\n{cyan-fg}${fullPath}{/cyan-fg}\n\n{gray-fg}Folder: ${targetFolder}\nNama file: ${defaultFilename}\nUkuran: ${formatBytes(fs.statSync(fullPath).size)}{/gray-fg}`,
+          tags: true,
+        });
+
+        const msgHelp = blessed.text({
+          parent: msgBox,
+          bottom: 0,
+          left: 'center',
+          content: '{center}{gray-fg}[Press any key to close]{/gray-fg}{/center}',
+          tags: true,
+        });
+
+        const closeMsg = () => {
+          msgBox.destroy();
+          filesPanel.focus();
+          screen.render();
+        };
+
+        ['escape', 'enter', 'space', 'q'].forEach(key => {
+          screen.onceKey(key, closeMsg);
+        });
+        
+        msgBox.focus();
+        screen.render();
+
+        statusBar.setContent(` {green-fg}✔ Exported to ${targetFolder}{/green-fg}`);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        showMessage(`Gagal export: ${errMsg}`, 'error');
+        filesPanel.focus();
+      }
+    });
+
+    input.focus();
     screen.render();
   }
 
