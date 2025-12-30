@@ -191,6 +191,7 @@ export async function runDashboard(targetPath?: string): Promise<void> {
   let currentData: DashboardData | null = null;
   let currentFocus = 0;
   const focusables = [filesPanel, foldersPanel];
+  let isScanning = false;
 
   function updateDashboard(data: DashboardData) {
     currentData = data;
@@ -279,8 +280,16 @@ export async function runDashboard(targetPath?: string): Promise<void> {
 
   function scanProject(scanPath: string): Promise<DashboardData | null> {
     return new Promise((resolve) => {
-      setImmediate(() => {
+      setImmediate(async () => {
+        if (isScanning) {
+          statusBar.setContent(` {yellow-fg}Scan sedang berjalan, tunggu sebentar...{/yellow-fg}`);
+          screen.render();
+          resolve(null);
+          return;
+        }
+
         try {
+          isScanning = true;
           const absolutePath = path.resolve(scanPath);
           
           if (!fs.existsSync(absolutePath)) {
@@ -299,40 +308,38 @@ export async function runDashboard(targetPath?: string): Promise<void> {
           }
 
           const projectName = path.basename(absolutePath);
-          statusBar.setContent(` {yellow-fg}Scanning ${projectName}...{/yellow-fg}`);
+          statusBar.setContent(` {yellow-fg}⏳ Scanning ${projectName}...{/yellow-fg}`);
           screen.render();
 
-          walkFiles(absolutePath, []).then((files) => {
-            if (files.length === 0) {
-              statusBar.setContent(` {red-fg}Tidak ada file yang ditemukan di ${projectName}{/red-fg}`);
-              screen.render();
-              resolve(null);
-              return;
-            }
-
-            statusBar.setContent(` {yellow-fg}Analyzing ${files.length} files...{/yellow-fg}`);
-            screen.render();
-
-            const locResult = analyzeLOC(files);
-            const fileResult = analyzeFiles(files, 15);
-
-            resolve({ projectName, loc: locResult, files: fileResult });
-          }).catch((err) => {
-            statusBar.setContent(` {red-fg}Error: ${err.message}{/red-fg}`);
+          const files = await walkFiles(absolutePath, []);
+          
+          if (files.length === 0) {
+            statusBar.setContent(` {red-fg}Tidak ada file yang ditemukan di ${projectName}{/red-fg}`);
             screen.render();
             resolve(null);
-          });
+            return;
+          }
+
+          statusBar.setContent(` {yellow-fg}⏳ Analyzing ${files.length} files...{/yellow-fg}`);
+          screen.render();
+
+          const locResult = analyzeLOC(files);
+          const fileResult = analyzeFiles(files, 15);
+
+          resolve({ projectName, loc: locResult, files: fileResult });
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e);
           statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
           screen.render();
           resolve(null);
+        } finally {
+          isScanning = false;
         }
       });
     });
   }
 
-  function showInputDialog(title: string, callback: (value: string) => void) {
+  function showInputDialog(title: string, callback: (value: string) => Promise<void>) {
     const inputBox = blessed.box({
       parent: screen,
       top: 'center',
@@ -358,7 +365,7 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       parent: inputBox,
       top: 1,
       left: 1,
-      content: '{gray-fg}Contoh: C:/code/project atau ../folder-lain{/gray-fg}',
+      content: '{gray-fg}Contoh: C:/code/project, . (current dir), atau ../folder-lain{/gray-fg}',
       tags: true,
     });
 
@@ -383,23 +390,74 @@ export async function runDashboard(targetPath?: string): Promise<void> {
       tags: true,
     });
 
+    let isProcessing = false;
+    let inputSubmitted = false;
+
+    const closeDialog = () => {
+      if (!inputSubmitted) {
+        inputSubmitted = true;
+        inputBox.destroy();
+        filesPanel.focus();
+        screen.render();
+      }
+    };
+
     input.key(['escape'], () => {
+      if (!isProcessing) {
+        closeDialog();
+      }
+    });
+
+    input.key(['enter'], async () => {
+      if (isProcessing || inputSubmitted) return;
+      
+      inputSubmitted = true;
+      const value = input.getValue();
       inputBox.destroy();
-      filesPanel.focus();
+      
+      if (!value || !value.trim()) {
+        statusBar.setContent(' {yellow-fg}Scan dibatalkan - path kosong{/yellow-fg}');
+        filesPanel.focus();
+        screen.render();
+        return;
+      }
+
+      const trimmedValue = value.trim();
+      
+      // Basic validation
+      if (trimmedValue.length > 500) {
+        statusBar.setContent(' {red-fg}Error: Path terlalu panjang (max 500 karakter){/red-fg}');
+        filesPanel.focus();
+        screen.render();
+        return;
+      }
+
+      // Check for obviously invalid characters (Windows & Unix)
+      const invalidChars = /[<>"|?*\x00-\x1f]/;
+      if (invalidChars.test(trimmedValue)) {
+        statusBar.setContent(' {red-fg}Error: Path mengandung karakter invalid{/red-fg}');
+        filesPanel.focus();
+        screen.render();
+        return;
+      }
+
+      isProcessing = true;
+      statusBar.setContent(` {yellow-fg}⏳ Validating path...{/yellow-fg}`);
       screen.render();
+
+      try {
+        await callback(trimmedValue);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        statusBar.setContent(` {red-fg}Error: ${errMsg}{/red-fg}`);
+      } finally {
+        isProcessing = false;
+        filesPanel.focus();
+        screen.render();
+      }
     });
 
     input.focus();
-    input.readInput((err, value) => {
-      inputBox.destroy();
-      if (value && value.trim()) {
-        callback(value.trim());
-      } else {
-        statusBar.setContent(' {yellow-fg}Scan dibatalkan{/yellow-fg}');
-        filesPanel.focus();
-      }
-      screen.render();
-    });
     screen.render();
   }
 
